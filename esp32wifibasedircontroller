@@ -1,0 +1,97 @@
+#EX-1
+import network
+import socket
+import machine
+from time import sleep
+from irremote import IRTransmitter  # Make sure to install this library if you use it
+
+# Replace with your Wi-Fi credentials
+SSID = 'your_SSID'
+PASSWORD = 'your_PASSWORD'
+
+# Setup IR Transmitter
+IR_PIN = 23  # GPIO pin connected to the base of the transistor
+ir_transmitter = IRTransmitter(machine.Pin(IR_PIN))
+
+# Define IR codes for different commands (example codes)
+IR_CODES = {
+    'power': 0x20DF10EF,   # Example code for 'power'
+    'volume_up': 0x20DF40BF,  # Example code for 'volume up'
+    'volume_down': 0x20DFD02F,  # Example code for 'volume down'
+    'channel_up': 0x20DFC03F,  # Example code for 'channel up'
+    'channel_down': 0x20DF609F,  # Example code for 'channel down'
+}
+
+# Connect to Wi-Fi
+def connect_wifi(ssid, password):
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    if not wlan.isconnected():
+        print('Connecting to network...')
+        wlan.connect(ssid, password)
+        while not wlan.isconnected():
+            pass
+    print('Network config:', wlan.ifconfig())
+
+connect_wifi(SSID, PASSWORD)
+
+# HTML content for the web page
+html = """<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP32 IR Remote</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        button { padding: 10px; margin: 5px; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <h1>ESP32 IR Remote</h1>
+    <button onclick="sendCommand('power')">Power</button>
+    <button onclick="sendCommand('volume_up')">Volume Up</button>
+    <button onclick="sendCommand('volume_down')">Volume Down</button>
+    <button onclick="sendCommand('channel_up')">Channel Up</button>
+    <button onclick="sendCommand('channel_down')">Channel Down</button>
+    <script>
+        function sendCommand(command) {
+            fetch('/' + command);
+        }
+    </script>
+</body>
+</html>
+"""
+
+# Handle HTTP requests
+def handle_client(client):
+    request = client.recv(1024)
+    request_str = str(request)
+
+    if any(command in request_str for command in IR_CODES):
+        command = [cmd for cmd in IR_CODES if cmd in request_str][0]
+        ir_code = IR_CODES[command]
+        ir_transmitter.send(ir_code)
+        response = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n'
+    else:
+        response = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n' + html
+
+    client.send(response)
+    client.close()
+
+# Start the web server
+def web_server():
+    addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
+    s = socket.socket()
+    s.bind(addr)
+    s.listen(1)
+    print('Listening on', addr)
+
+    while True:
+        cl, addr = s.accept()
+        print('Client connected from', addr)
+        handle_client(cl)
+
+# Run the web server
+try:
+    web_server()
+except Exception as e:
+    print('Error:', e)
